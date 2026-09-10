@@ -111,8 +111,18 @@ exports.verifyOtp = async (req, res) => {
 
     // await otpRecord.update({ is_verified: true, verified_at: new Date() });
 
-    // ─── TEMP: master OTP bypass (remove before production) ───────
-    const isBypass = otp_code === "1234";
+    // ─── Reviewer OTP bypass (Play Store / App Store review access only) ───
+    // Scoped to a whitelist of reviewer numbers set via env var, e.g.:
+    // REVIEWER_MOBILE_NUMBERS=9999999999,8888888888
+    // REVIEWER_OTP_CODE=123456
+    const reviewerNumbers = (process.env.REVIEWER_MOBILE_NUMBERS || "")
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+    const reviewerOtp = process.env.REVIEWER_OTP_CODE || "1234";
+
+    const isBypass =
+      reviewerNumbers.includes(mobile_number) && otp_code === reviewerOtp;
 
     if (!isBypass) {
       if (!otpRecord) {
@@ -133,7 +143,7 @@ exports.verifyOtp = async (req, res) => {
       defaults: {
         mobile_number,
         // role: otpRecord.role,
-        role: isBypass ? req.body.role : otpRecord.role,  // remove in prod
+        role: isBypass ? "farmer" : otpRecord.role, // remove in prod
         password_hash: null,
         is_verified: true,
         last_login: new Date(),

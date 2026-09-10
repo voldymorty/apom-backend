@@ -878,10 +878,11 @@ exports.finalizeProcurement = async (req, res) => {
     const { delivery_id } = req.params;
     const {
       wastage_quantity_kg,
-      accepted_quantity_kg,
-      final_procurement_amount,
+      accepted_quantity_kg,   // legacy single-grade path (still supported)
+      final_procurement_amount, // legacy single-grade path (still supported)
       procurement_remarks,
-      final_grade,
+      final_grade,            // legacy single-grade path (still supported)
+      splits,                  // NEW: [{ grade, quantity_kg, amount }, ...]
 
       payment_status,
       payment_date,
@@ -952,36 +953,6 @@ exports.finalizeProcurement = async (req, res) => {
       });
     }
 
-    let acceptedQty =
-      accepted_quantity_kg !== undefined && accepted_quantity_kg !== null
-        ? parseFloat(accepted_quantity_kg)
-        : procuredQty - wastage;
-
-    if (isNaN(acceptedQty) || acceptedQty <= 0) {
-      await t.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "accepted_quantity_kg must be greater than 0 after wastage removal",
-      });
-    }
-
-    if (acceptedQty > procuredQty - wastage + 0.001) {
-      await t.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Accepted quantity cannot exceed procured quantity minus wastage",
-      });
-    }
-
-    const finalAmount = parseFloat(final_procurement_amount);
-    if (!final_procurement_amount || isNaN(finalAmount) || finalAmount <= 0) {
-      await t.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "final_procurement_amount is required and must be greater than 0",
-      });
-    }
-
     if (!task.crop || !task.crop.product_id) {
       await t.rollback();
       return res.status(400).json({ success: false, message: "Linked crop/product not found for this pickup" });
@@ -1018,10 +989,84 @@ exports.finalizeProcurement = async (req, res) => {
       });
     }
 
-    const originalGrade = task.crop.grade;
-    const grade = final_grade || originalGrade;
     const productId = task.crop.product_id;
     const now = new Date();
+    const availableAfterWastage = procuredQty - wastage;
+
+    // ── NEW: multi-grade split path vs legacy single-grade path ──
+    let normalizedSplits;
+
+    if (Array.isArray(splits) && splits.length > 0) {
+      let runningQty = 0;
+      normalizedSplits = [];
+
+      for (const s of splits) {
+        const g = s.grade;
+        const qty = parseFloat(s.quantity_kg);
+        const amt = parseFloat(s.amount);
+
+        if (!g) {
+          await t.rollback();
+          return res.status(400).json({ success: false, message: "Each split requires a grade" });
+        }
+        if (isNaN(qty) || qty <= 0) {
+          await t.rollback();
+          return res.status(400).json({ success: false, message: `Invalid quantity_kg for grade ${g}` });
+        }
+        if (isNaN(amt) || amt <= 0) {
+          await t.rollback();
+          return res.status(400).json({ success: false, message: `Invalid amount for grade ${g}` });
+        }
+
+        runningQty += qty;
+        normalizedSplits.push({ grade: g, quantity_kg: qty, amount: amt });
+      }
+
+      if (runningQty > availableAfterWastage + 0.001) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Sum of split quantities (${runningQty} kg) exceeds available quantity after wastage (${availableAfterWastage} kg)`,
+        });
+      }
+    } else {
+      // Legacy single-grade path — unchanged behavior
+      let acceptedQty =
+        accepted_quantity_kg !== undefined && accepted_quantity_kg !== null
+          ? parseFloat(accepted_quantity_kg)
+          : availableAfterWastage;
+
+      if (isNaN(acceptedQty) || acceptedQty <= 0) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "accepted_quantity_kg must be greater than 0 after wastage removal",
+        });
+      }
+
+      const finalAmount = parseFloat(final_procurement_amount);
+      if (!final_procurement_amount || isNaN(finalAmount) || finalAmount <= 0) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "final_procurement_amount is required and must be greater than 0",
+        });
+      }
+
+      normalizedSplits = [
+        { grade: final_grade || task.crop.grade, quantity_kg: acceptedQty, amount: finalAmount },
+      ];
+    }
+
+    // ── Derive totals from splits (single source of truth from here on) ──
+    const acceptedQty = normalizedSplits.reduce((sum, s) => sum + s.quantity_kg, 0);
+    const finalAmount = normalizedSplits.reduce((sum, s) => sum + s.amount, 0);
+    const isMultiGrade = normalizedSplits.length > 1;
+    // NOTE: FarmerCrop.grade is a strict ENUM("A","B","C") column — it cannot
+    // hold a combined value like "mixed" or "A, B" without a migration.
+    // For multi-grade splits we leave the crop's grade field untouched;
+    // the authoritative breakdown lives in PickupDelivery.grade_splits.
+    const cropGrade = isMultiGrade ? null : normalizedSplits[0].grade;
 
     await PickupDelivery.update(
       {
@@ -1032,70 +1077,75 @@ exports.finalizeProcurement = async (req, res) => {
         procurement_status: "finalized",
         finalized_at: now,
         finalized_by: req.user.user_id,
+        grade_splits: normalizedSplits,
       },
       { where: { delivery_id }, transaction: t }
     );
 
+    const cropUpdatePayload = { status: "picked_up" };
+    if (cropGrade) cropUpdatePayload.grade = cropGrade;
+
     await FarmerCrop.update(
-      {
-        status: "picked_up",
-        grade,
-      },
+      cropUpdatePayload,
       {
         where: { crop_id: task.crop_id },
         transaction: t,
       }
     );
 
-    let inventory = await Inventory.findOne({
-      where: { product_id: productId, grade },
-      transaction: t,
-      lock: t.LOCK.UPDATE,
-    });
+    // ── Inventory + transaction log, once per grade split ──
+    for (const split of normalizedSplits) {
+      let inventory = await Inventory.findOne({
+        where: { product_id: productId, grade: split.grade },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
 
-    const previousQty = inventory
-      ? parseFloat(inventory.available_quantity_kg)
-      : 0;
-    const newQty = previousQty + acceptedQty;
+      const previousQty = inventory
+        ? parseFloat(inventory.available_quantity_kg)
+        : 0;
+      const newQty = previousQty + split.quantity_kg;
 
-    if (!inventory) {
-      inventory = await Inventory.create(
+      if (!inventory) {
+        inventory = await Inventory.create(
+          {
+            product_id: productId,
+            grade: split.grade,
+            available_quantity_kg: split.quantity_kg,
+            reserved_quantity_kg: 0,
+            last_restocked_at: now,
+          },
+          { transaction: t }
+        );
+      } else {
+        await Inventory.update(
+          {
+            available_quantity_kg: newQty,
+            last_restocked_at: now,
+          },
+          { where: { inventory_id: inventory.inventory_id }, transaction: t }
+        );
+      }
+
+      await InventoryTransaction.create(
         {
-          product_id: productId,
-          grade,
-          available_quantity_kg: acceptedQty,
-          reserved_quantity_kg: 0,
-          last_restocked_at: now,
+          inventory_id: inventory.inventory_id,
+          transaction_type: "stock_in",
+          quantity_kg: split.quantity_kg,
+          reference_type: "pickup",
+          reference_id: task.delivery_id,
+          previous_quantity: previousQty,
+          new_quantity: newQty,
+          performed_by: req.user.user_id,
+          remarks:
+            procurement_remarks ||
+            `Procurement finalized — Grade ${split.grade}, ${split.quantity_kg} kg accepted after ${wastage} kg wastage`,
         },
         { transaction: t }
       );
-    } else {
-      await Inventory.update(
-        {
-          available_quantity_kg: newQty,
-          last_restocked_at: now,
-        },
-        { where: { inventory_id: inventory.inventory_id }, transaction: t }
-      );
     }
 
-    await InventoryTransaction.create(
-      {
-        inventory_id: inventory.inventory_id,
-        transaction_type: "stock_in",
-        quantity_kg: acceptedQty,
-        reference_type: "pickup",
-        reference_id: task.delivery_id,
-        previous_quantity: previousQty,
-        new_quantity: newQty,
-        performed_by: req.user.user_id,
-        remarks:
-          procurement_remarks ||
-          `Procurement finalized — Grade ${grade}, ${acceptedQty} kg accepted after ${wastage} kg wastage`,
-      },
-      { transaction: t }
-    );
-
+    // ── FarmerEarning: single row, totals only (unchanged) ──
     const pricePerKg = parseFloat((finalAmount / acceptedQty).toFixed(2));
     await FarmerEarning.create(
       {
@@ -1131,7 +1181,7 @@ exports.finalizeProcurement = async (req, res) => {
       task.status,
       task.status,
       req.user.user_id,
-      `Procurement finalized — ${acceptedQty} kg to inventory, final amount Rs.${finalAmount}`,
+      `Procurement finalized — ${acceptedQty} kg to inventory across ${normalizedSplits.length} grade(s), final amount Rs.${finalAmount}`,
       t
     );
 
@@ -1173,6 +1223,7 @@ exports.finalizeProcurement = async (req, res) => {
         wastage_quantity_kg: wastage,
         final_procurement_amount: finalAmount,
         procurement_status: "finalized",
+        grade_splits: normalizedSplits,
       },
     });
   } catch (error) {

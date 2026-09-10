@@ -126,6 +126,11 @@ const PickupDelivery = sequelize.define(
       comment: "Final amount fixed by admin after inspection",
     },
     procurement_remarks: DataTypes.TEXT,
+    grade_splits: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: "Array of {grade, quantity_kg, amount} when procurement is split across grades during finalization",
+    },
     finalized_at: DataTypes.DATE,
     finalized_by: {
       type: DataTypes.INTEGER,

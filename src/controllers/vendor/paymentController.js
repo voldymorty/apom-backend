@@ -243,8 +243,21 @@ exports.initiatePayment = async (req, res) => {
         },
       });
     } catch (rzErr) {
-      await cleanupFailedInitiation(order.order_id, vendor.vendor_id, req.user.user_id, rzErr.message);
-      throw new Error(`Unable to create Razorpay order: ${rzErr.message}`);
+      console.error("Razorpay Error:", rzErr);
+      console.error("Response:", rzErr.error);
+
+      await cleanupFailedInitiation(
+        order.order_id,
+        vendor.vendor_id,
+        req.user.user_id,
+        JSON.stringify(rzErr)
+      );
+
+      throw new Error(
+        `Unable to create Razorpay order: ${
+          rzErr.error?.description || rzErr.message || "Unknown Razorpay error"
+        }`
+      );
     }
 
     await db.Payment.update(

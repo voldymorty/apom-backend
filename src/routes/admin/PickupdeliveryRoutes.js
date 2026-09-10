@@ -569,6 +569,12 @@ router.patch("/:delivery_id/cancel", ctrl.cancelPickupDelivery);
  * /admin/pickups-deliveries/{delivery_id}/finalize-procurement:
  *   patch:
  *     summary: Finalize procurement and add accepted stock to inventory
+ *     description: >
+ *       Supports two mutually exclusive ways of specifying accepted quantity/amount:
+ *       (1) legacy single-grade fields (accepted_quantity_kg, final_procurement_amount, final_grade), or
+ *       (2) a `splits` array to divide the procured quantity across multiple grades, each with its own
+ *       quantity and amount. If `splits` is provided, it takes precedence and the legacy fields are ignored.
+ *       `wastage_quantity_kg` always applies to the whole pickup regardless of which mode is used.
  *     tags: [Admin PickupsDeliveries]
  *     security:
  *       - bearerAuth: []
@@ -585,24 +591,58 @@ router.patch("/:delivery_id/cancel", ctrl.cancelPickupDelivery);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - final_procurement_amount
  *             properties:
- *               accepted_quantity_kg:
- *                 type: number
- *                 format: float
- *                 example: 95
  *               wastage_quantity_kg:
  *                 type: number
  *                 format: float
  *                 example: 5
+ *                 description: Wastage for the whole pickup, removed before any grade split.
+ *               splits:
+ *                 type: array
+ *                 description: >
+ *                   Multi-grade breakdown of the accepted quantity. When provided, accepted_quantity_kg,
+ *                   final_procurement_amount and final_grade below are ignored — totals are derived from
+ *                   this array instead. Sum of quantity_kg across splits must not exceed
+ *                   (procured quantity - wastage_quantity_kg).
+ *                 items:
+ *                   type: object
+ *                   required: [grade, quantity_kg, amount]
+ *                   properties:
+ *                     grade:
+ *                       type: string
+ *                       example: A
+ *                     quantity_kg:
+ *                       type: number
+ *                       format: float
+ *                       example: 20
+ *                     amount:
+ *                       type: number
+ *                       format: float
+ *                       example: 800
+ *                 example:
+ *                   - grade: A
+ *                     quantity_kg: 20
+ *                     amount: 800
+ *                   - grade: B
+ *                     quantity_kg: 10
+ *                     amount: 300
+ *                   - grade: C
+ *                     quantity_kg: 10
+ *                     amount: 250
+ *               accepted_quantity_kg:
+ *                 type: number
+ *                 format: float
+ *                 example: 95
+ *                 description: Legacy single-grade mode only. Ignored if `splits` is provided.
  *               final_procurement_amount:
  *                 type: number
  *                 format: float
  *                 example: 4750
+ *                 description: Legacy single-grade mode only. Required if `splits` is not provided. Ignored if `splits` is provided.
  *               final_grade:
  *                 type: string
  *                 example: A
+ *                 description: Legacy single-grade mode only. Ignored if `splits` is provided.
  *               payment_status:
  *                 type: string
  *                 enum: [pending, processing, paid, failed]

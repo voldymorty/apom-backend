@@ -101,38 +101,34 @@ exports.verifyOtp = async (req, res) => {
   try {
     const { mobile_number, otp_code } = req.body;
 
-    const otpRecord = await db.OtpVerification.findOne({
-      where: { mobile_number, otp_code, is_verified: false },
-    });
+    // ─── Reviewer OTP bypass (Play Store / App Store review access only) ───
+    // Scoped to a whitelist of reviewer numbers set via env var, e.g.:
+    // REVIEWER_MOBILE_NUMBERS=9999999999,8888888888
+    // REVIEWER_OTP_CODE=123456
+    const reviewerNumbers = (process.env.REVIEWER_MOBILE_NUMBERS || "")
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+    const reviewerOtp = process.env.REVIEWER_OTP_CODE || "123456";
 
-    if (!otpRecord) {
-      return res.status(400).json({ success: false, message: "Invalid OTP" });
+    const isBypass =
+      reviewerNumbers.includes(mobile_number) && otp_code === reviewerOtp;
+
+    if (!isBypass) {
+      const otpRecord = await db.OtpVerification.findOne({
+        where: { mobile_number, otp_code, is_verified: false },
+      });
+
+      if (!otpRecord) {
+        return res.status(400).json({ success: false, message: "Invalid OTP" });
+      }
+
+      if (new Date() > otpRecord.expires_at) {
+        return res.status(400).json({ success: false, message: "OTP has expired. Please request a new one." });
+      }
+
+      await otpRecord.update({ is_verified: true, verified_at: new Date() });
     }
-
-    if (new Date() > otpRecord.expires_at) {
-      return res.status(400).json({ success: false, message: "OTP has expired. Please request a new one." });
-    }
-
-    await otpRecord.update({ is_verified: true, verified_at: new Date() });
-
-    // ─── TEMP: master OTP bypass (remove before production) ───────
-    // const isBypass = otp_code === "1234";
-
-    // if (!isBypass) {
-    //   const otpRecord = await db.OtpVerification.findOne({
-    //     where: { mobile_number, otp_code, is_verified: false },
-    //   });
-
-    //   if (!otpRecord) {
-    //     return res.status(400).json({ success: false, message: "Invalid OTP" });
-    //   }
-
-    //   if (new Date() > otpRecord.expires_at) {
-    //     return res.status(400).json({ success: false, message: "OTP has expired. Please request a new one." });
-    //   }
-
-    //   await otpRecord.update({ is_verified: true, verified_at: new Date() });
-    // }
     // ──────────────────────────────────────────────────────────────
 
     // Check if number already exists under a different role
