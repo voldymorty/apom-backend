@@ -2,6 +2,33 @@ const db = require("../../models");
 const { Op } = require("sequelize");
 
 const allowedStatus = ["active", "fallow", "harvested"];
+const allowedYieldUnits = ["kg", "ton"];
+
+// Resolve a product_id to its record, snapshotting the name server-side
+// so crop_name always comes from the Crop API rather than client text.
+async function resolveProduct(product_id) {
+  const id = parseInt(product_id, 10);
+  if (Number.isNaN(id)) return null;
+  return db.Product.findByPk(id);
+}
+
+// Crop partitions only need to fit within the farmer's total land — they
+// don't need to add up to it. The remainder is automatically fallow land.
+function assertWithinTotalLand({ farmer, incomingArea, excludeSegmentId = null }) {
+  return db.LandSegment.sum("area_value", {
+    where: {
+      farmer_id: farmer.farmer_id,
+      ...(excludeSegmentId ? { segment_id: { [Op.ne]: excludeSegmentId } } : {}),
+    },
+  }).then((existingSum) => {
+    const projected = (existingSum || 0) + incomingArea;
+    const totalLand = parseFloat(farmer.total_land);
+    if (projected - totalLand > 0.01) {
+      return `Allocated crop land (${projected}) cannot exceed total land (${totalLand})`;
+    }
+    return null;
+  });
+}
 
 // ─── GET /farmer-land?status=active ───────────────────────────
 exports.getAll = async (req, res) => {
@@ -54,7 +81,10 @@ exports.create = async (req, res) => {
     const farmer = await db.Farmer.findOne({ where: { user_id: req.user.user_id } });
     if (!farmer) return res.status(404).json({ success: false, message: "Farmer not found" });
 
-    const { crop_name, area_value, area_unit, plantation_date, harvesting_date, status } = req.body;
+    const {
+      product_id, area_value, area_unit, plantation_date, harvesting_date, status,
+      expected_yield_value, expected_yield_unit,
+    } = req.body;
 
     if (status && !allowedStatus.includes(status)) {
       return res.status(400).json({
@@ -63,11 +93,36 @@ exports.create = async (req, res) => {
       });
     }
 
+    if (expected_yield_unit && !allowedYieldUnits.includes(expected_yield_unit)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid expected_yield_unit. Allowed values: ${allowedYieldUnits.join(", ")}`,
+      });
+    }
+
+    const product = await resolveProduct(product_id);
+    if (!product) {
+      return res.status(400).json({ success: false, message: "A valid product_id from the crop catalog is required" });
+    }
+
+    const parsedArea = parseFloat(area_value);
+    if (!(parsedArea > 0)) {
+      return res.status(400).json({ success: false, message: "area_value must be a positive number" });
+    }
+
+    const capError = await assertWithinTotalLand({ farmer, incomingArea: parsedArea });
+    if (capError) {
+      return res.status(400).json({ success: false, message: capError });
+    }
+
     const segment = await db.LandSegment.create({
       farmer_id:       farmer.farmer_id,
-      crop_name,
-      area_value:      parseFloat(area_value),
+      product_id:      product.product_id,
+      crop_name:       product.product_name,
+      area_value:      parsedArea,
       area_unit:       area_unit || farmer.land_unit,
+      expected_yield_value: expected_yield_value != null ? parseFloat(expected_yield_value) : null,
+      expected_yield_unit:  expected_yield_unit || "kg",
       plantation_date,
       harvesting_date,
       status:          status || "active",
@@ -100,7 +155,10 @@ exports.update = async (req, res) => {
     });
     if (!segment) return res.status(404).json({ success: false, message: "Land segment not found" });
 
-    const { crop_name, area_value, area_unit, plantation_date, harvesting_date, status } = req.body;
+    const {
+      product_id, area_value, area_unit, plantation_date, harvesting_date, status,
+      expected_yield_value, expected_yield_unit,
+    } = req.body;
 
     if (status && !allowedStatus.includes(status)) {
       return res.status(400).json({
@@ -109,10 +167,42 @@ exports.update = async (req, res) => {
       });
     }
 
+    if (expected_yield_unit && !allowedYieldUnits.includes(expected_yield_unit)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid expected_yield_unit. Allowed values: ${allowedYieldUnits.join(", ")}`,
+      });
+    }
+
+    let product = null;
+    if (product_id !== undefined) {
+      product = await resolveProduct(product_id);
+      if (!product) {
+        return res.status(400).json({ success: false, message: "A valid product_id from the crop catalog is required" });
+      }
+    }
+
+    const newArea = area_value ? parseFloat(area_value) : parseFloat(segment.area_value);
+    if (!(newArea > 0)) {
+      return res.status(400).json({ success: false, message: "area_value must be a positive number" });
+    }
+
+    if (area_value) {
+      const capError = await assertWithinTotalLand({
+        farmer, incomingArea: newArea, excludeSegmentId: segment.segment_id,
+      });
+      if (capError) {
+        return res.status(400).json({ success: false, message: capError });
+      }
+    }
+
     await segment.update({
-      crop_name:       crop_name       || segment.crop_name,
-      area_value:      area_value      ? parseFloat(area_value) : segment.area_value,
+      product_id:      product ? product.product_id : segment.product_id,
+      crop_name:       product ? product.product_name : segment.crop_name,
+      area_value:      newArea,
       area_unit:       area_unit       || segment.area_unit,
+      expected_yield_value: expected_yield_value != null ? parseFloat(expected_yield_value) : segment.expected_yield_value,
+      expected_yield_unit:  expected_yield_unit || segment.expected_yield_unit,
       plantation_date: plantation_date || segment.plantation_date,
       harvesting_date: harvesting_date || segment.harvesting_date,
       status:          status          || segment.status,

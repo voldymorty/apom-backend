@@ -23,6 +23,7 @@
     "node-cron": "^4.2.1",
     "razorpay": "^2.9.6",
     "sequelize": "^6.37.7",
+    "sharp": "^0.35.4",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "uuid": "^9.0.0"

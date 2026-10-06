@@ -25,7 +25,7 @@ const fileFilter = (req, file, cb) => {
   else cb(new Error("Only image files are allowed (jpeg, png, webp)"), false);
 };
 
-const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage, fileFilter, limits: { fileSize: 50 * 1024 * 1024 } });
 
 exports.uploadProfilePhoto = upload.fields([{ name: "profile_photo", maxCount: 1 }]);
 

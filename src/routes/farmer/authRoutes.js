@@ -133,6 +133,10 @@ router.get("/me", authenticate, ctrl.getMe);
  *       **Delivery:** full_name, vehicle_type, vehicle_number, license_number, license_expiry_date, profile_photo
  *
  *       Also accepts `email` for all roles to update user email.
+ *
+ *       For farmers, changing `total_land` recomputes `available_land`
+ *       (fallow land) automatically and is rejected if the new value is
+ *       less than the land currently allocated to crop partitions.
  *     tags: [Farmer Auth]
  *     security:
  *       - bearerAuth: []
@@ -160,6 +164,8 @@ router.get("/me", authenticate, ctrl.getMe);
  *     responses:
  *       200:
  *         description: Profile updated successfully
+ *       400:
+ *         description: Invalid total_land, or total_land is less than currently cultivated land
  *       404:
  *         description: User or profile not found
  */

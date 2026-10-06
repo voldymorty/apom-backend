@@ -55,11 +55,14 @@ app.use("/api/admin/payouts", require("./routes/admin/PayoutRoutes"));
 app.use("/api/admin/commission", require("./routes/admin/CommissionRoutes"));
 app.use("/api/admin/audit-logs", require("./routes/admin/PayoutRoutes"));
 app.use("/api/admin/notifications", require("./routes/admin/NotificationRoutes"));
+app.use("/api/admin/subscriptions", require("./routes/admin/SubscriptionRoutes"));
+app.use("/api/admin/subscription-plans", require("./routes/admin/SubscriptionPlanRoutes"));
 
 // ── Farmer ────────────────────────────────────────────────────
 app.use("/api/auth",           require("./routes/farmer/authRoutes"));
 app.use("/api/farmers",        require("./routes/farmer/farmerRoutes"));
 app.use("/api/farmer-crops",   require("./routes/farmer/farmerCropRoutes"));
+app.use("/api/farmer/subscriptions", require("./routes/farmer/subscriptionRoutes"));
 app.use("/api/farmer-land",    require("./routes/farmer/farmerLandRoutes"));
 app.use("/api/farmer/notifications", require("./routes/farmer/notificationRoutes"));
 

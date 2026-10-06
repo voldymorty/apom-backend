@@ -31,6 +31,9 @@ const District = require("./district");
 const City     = require("./city");
 const LandSegment     = require("./landSegment");
 const MarketDemand = require("./marketDemand");
+const FarmerSubscription = require("./farmerSubscription");
+const SubscriptionPayment = require("./subscriptionPayment");
+const SubscriptionPlan = require("./subscriptionPlan");
 
 const db = {};
 
@@ -65,6 +68,9 @@ db.District = District;
 db.City     = City;
 db.LandSegment = LandSegment;
 db.MarketDemand = MarketDemand;
+db.FarmerSubscription = FarmerSubscription;
+db.SubscriptionPayment = SubscriptionPayment;
+db.SubscriptionPlan = SubscriptionPlan;
 
 // One user -> one farmer profile
 User.hasOne(Farmer, { foreignKey: "user_id", as: "farmer", onDelete: "CASCADE"});
@@ -75,6 +81,11 @@ Farmer.belongsTo(User, { foreignKey: "user_id", as: "user"});
 Farmer.hasMany(LandSegment, { foreignKey: "farmer_id", as: "land_segments", onDelete: "CASCADE"});
 
 LandSegment.belongsTo(Farmer, { foreignKey: "farmer_id", as: "farmer"});
+
+// Land Segment → Product (crop selected from the Crop API)
+Product.hasMany(LandSegment, { foreignKey: "product_id", as: "land_segments"});
+
+LandSegment.belongsTo(Product, { foreignKey: "product_id", as: "product"});
 
 Farmer.hasMany(FarmerCrop, { foreignKey: "farmer_id", as: "crops"});
 
@@ -241,5 +252,20 @@ City.belongsTo(District, { foreignKey: "district_id", as: "district" });
 Farmer.belongsTo(State,    { foreignKey: "state_id",    as: "state_info" });
 Farmer.belongsTo(District, { foreignKey: "district_id", as: "district_info" });
 Farmer.belongsTo(City,     { foreignKey: "city_id",     as: "city_info" });
+
+// Farmer → Subscriptions
+Farmer.hasMany(FarmerSubscription, { foreignKey: "farmer_id", as: "subscriptions" });
+FarmerSubscription.belongsTo(Farmer, { foreignKey: "farmer_id", as: "farmer" });
+
+// Plan → Subscriptions
+SubscriptionPlan.hasMany(FarmerSubscription, { foreignKey: "plan_id", as: "subscriptions" });
+FarmerSubscription.belongsTo(SubscriptionPlan, { foreignKey: "plan_id", as: "plan" });
+
+// Subscription → Payments
+FarmerSubscription.hasMany(SubscriptionPayment, { foreignKey: "subscription_id", as: "payments" });
+SubscriptionPayment.belongsTo(FarmerSubscription, { foreignKey: "subscription_id", as: "subscription" });
+
+Farmer.hasMany(SubscriptionPayment, { foreignKey: "farmer_id", as: "subscription_payments" });
+SubscriptionPayment.belongsTo(Farmer, { foreignKey: "farmer_id", as: "farmer" });
 
 module.exports = db;

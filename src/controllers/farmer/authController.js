@@ -35,7 +35,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 exports.uploadProfileImages = upload.fields([
@@ -228,11 +228,36 @@ exports.setupProfile = async (req, res) => {
       }
 
       const segmentTotal = parsedSegments.reduce((sum, s) => sum + parseFloat(s.area_value || 0), 0);
-      if (Math.abs(segmentTotal - parseFloat(total_land)) > 0.01) {
+      const totalLandNum = parseFloat(total_land);
+
+      // Crop partitions only represent land currently allocated to crops —
+      // they no longer need to add up to the total. The remainder is
+      // automatically treated as fallow land. We only reject over-allocation.
+      if (segmentTotal - totalLandNum > 0.01) {
         return res.status(400).json({
           success: false,
-          message: `Segment total (${segmentTotal}) must match total land (${total_land})`,
+          message: `Allocated crop land (${segmentTotal}) cannot exceed total land (${total_land})`,
         });
+      }
+
+      // Resolve product_id → snapshot product_name server-side so crop_name
+      // is always sourced from the Crop API, not client-typed text.
+      const productIds = parsedSegments
+        .map((s) => parseInt(s.product_id, 10))
+        .filter((id) => !Number.isNaN(id));
+      const products = productIds.length
+        ? await db.Product.findAll({ where: { product_id: productIds } })
+        : [];
+      const productMap = new Map(products.map((p) => [p.product_id, p]));
+
+      for (const s of parsedSegments) {
+        const productId = parseInt(s.product_id, 10);
+        if (Number.isNaN(productId) || !productMap.has(productId)) {
+          return res.status(400).json({
+            success: false,
+            message: "Each land segment must reference a valid product_id from the crop catalog",
+          });
+        }
       }
 
       const farmer = await db.Farmer.create({
@@ -250,19 +275,25 @@ exports.setupProfile = async (req, res) => {
         total_land,
         land_unit: land_unit || "acres",
         allocated_land: segmentTotal,
-        available_land: 0,
+        available_land: Math.max(0, totalLandNum - segmentTotal),
         profile_photo_url,
         land_photo_url,
       });
 
-      const segmentRows = parsedSegments.map((s) => ({
-        farmer_id: farmer.farmer_id,
-        crop_name: s.crop_name,
-        area_value: s.area_value,
-        area_unit: land_unit || "acres",
-        plantation_date: s.plantation_date,
-        harvesting_date: s.harvesting_date,
-      }));
+      const segmentRows = parsedSegments.map((s) => {
+        const product = productMap.get(parseInt(s.product_id, 10));
+        return {
+          farmer_id: farmer.farmer_id,
+          product_id: product.product_id,
+          crop_name: product.product_name,
+          area_value: s.area_value,
+          area_unit: land_unit || "acres",
+          expected_yield_value: s.expected_yield_value != null ? parseFloat(s.expected_yield_value) : null,
+          expected_yield_unit: s.expected_yield_unit || "kg",
+          plantation_date: s.plantation_date,
+          harvesting_date: s.harvesting_date,
+        };
+      });
 
       await db.LandSegment.bulkCreate(segmentRows);
 
@@ -387,6 +418,35 @@ exports.editProfile = async (req, res) => {
         ? `${baseUrl}/uploads/${username}/land/${req.files.land_photo[0].filename}`
         : farmer.land_photo_url;
 
+      // Changing total_land must keep Total Land = Cultivated + Fallow intact.
+      // Cultivated (allocated_land) is the real source of truth — recompute
+      // it from actual segments rather than trusting the possibly-stale
+      // farmer.allocated_land column, then reject shrinking below it and
+      // recompute available_land (fallow) for the new total.
+      let newTotalLand = farmer.total_land;
+      let newAvailableLand = farmer.available_land;
+
+      if (total_land !== undefined && total_land !== null && total_land !== "") {
+        const parsedTotal = parseFloat(total_land);
+        if (Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+          return res.status(400).json({ success: false, message: "total_land must be a positive number" });
+        }
+
+        const cultivated = await db.LandSegment.sum("area_value", {
+          where: { farmer_id: farmer.farmer_id },
+        }) || 0;
+
+        if (parsedTotal - cultivated < -0.01) {
+          return res.status(400).json({
+            success: false,
+            message: `Total land cannot be less than currently cultivated land (${cultivated}). Reduce or remove crop partitions first.`,
+          });
+        }
+
+        newTotalLand = parsedTotal;
+        newAvailableLand = Math.max(0, parsedTotal - cultivated);
+      }
+
       await farmer.update({
         full_name:        full_name        || farmer.full_name,
         farm_name:        farm_name        !== undefined ? farm_name : farmer.farm_name,
@@ -397,7 +457,8 @@ exports.editProfile = async (req, res) => {
         city_id:          city_id          || farmer.city_id,
         latitude:         latitude         || farmer.latitude,
         longitude:        longitude        || farmer.longitude,
-        total_land:       total_land       || farmer.total_land,
+        total_land:       newTotalLand,
+        available_land:   newAvailableLand,
         land_unit:        land_unit        || farmer.land_unit,
         profile_photo_url,
         land_photo_url,

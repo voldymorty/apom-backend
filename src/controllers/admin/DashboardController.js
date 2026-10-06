@@ -28,15 +28,33 @@ exports.getSummaryStats = async (req, res) => {
 
     const [users] = await sequelize.query(
       `SELECT
-         COUNT(*)                                          AS total_users,
-         SUM(role = 'farmer')                             AS total_farmers,
-         SUM(role = 'vendor')                             AS total_vendors,
-         SUM(role = 'delivery')                           AS total_delivery_personnel,
-         SUM(role = 'farmer'  AND created_at BETWEEN :from AND :to) AS new_farmers,
-         SUM(role = 'vendor'  AND created_at BETWEEN :from AND :to) AS new_vendors,
-         SUM(role = 'delivery'AND created_at BETWEEN :from AND :to) AS new_delivery_personnel
-       FROM users
-       WHERE is_active = 1`,
+        COUNT(*) AS total_users,
+
+        SUM(role = 'farmer' AND profile_complete = 1) AS total_farmers,
+
+        SUM(role = 'vendor' AND profile_complete = 1) AS total_vendors,
+
+        SUM(role = 'delivery') AS total_delivery_personnel,
+
+        SUM(
+          role = 'farmer'
+          AND profile_complete = 1
+          AND created_at BETWEEN :from AND :to
+        ) AS new_farmers,
+
+        SUM(
+          role = 'vendor'
+          AND profile_complete = 1
+          AND created_at BETWEEN :from AND :to
+        ) AS new_vendors,
+
+        SUM(
+          role = 'delivery'
+          AND created_at BETWEEN :from AND :to
+        ) AS new_delivery_personnel
+
+      FROM users
+      WHERE is_active = 1`,
       { replacements: { from, to }, type: QueryTypes.SELECT }
     );
 
@@ -284,19 +302,29 @@ exports.getRegistrationTrend = async (req, res) => {
       `SELECT
          DATE(created_at) AS date,
          role,
-         COUNT(*)         AS count
-       FROM   users
-       WHERE  created_at BETWEEN :from AND :to
-         AND  role IN ('farmer','vendor','delivery')
-       GROUP  BY DATE(created_at), role
-       ORDER  BY date ASC, role ASC`,
-      { replacements: { from, to }, type: QueryTypes.SELECT }
+         COUNT(*) AS count
+       FROM users
+       WHERE created_at BETWEEN :from AND :to
+         AND role IN ('farmer', 'vendor', 'delivery')
+         AND (
+           role = 'delivery'
+           OR (role IN ('farmer', 'vendor') AND profile_complete = 1)
+         )
+       GROUP BY DATE(created_at), role
+       ORDER BY date ASC, role ASC`,
+      {
+        replacements: { from, to },
+        type: QueryTypes.SELECT
+      }
     );
 
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error("getRegistrationTrend:", err);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
   }
 };
 

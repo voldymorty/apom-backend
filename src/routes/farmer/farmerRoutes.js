@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const ctrl = require("../../controllers/farmer/farmerController");
 const { authenticate, authorizeRoles } = require("../../middleware/auth");
+const { requireActiveSubscription } = require("../../middleware/subscriptionGate");
 
 /**
  * @swagger
@@ -58,7 +59,7 @@ const { authenticate, authorizeRoles } = require("../../middleware/auth");
  *       404:
  *         description: Farmer not found
  */
-router.get("/dashboard", authenticate, authorizeRoles("farmer"), ctrl.getDashboard);
+router.get("/dashboard", authenticate, authorizeRoles("farmer"), requireActiveSubscription, ctrl.getDashboard);
 
 /**
  * @swagger

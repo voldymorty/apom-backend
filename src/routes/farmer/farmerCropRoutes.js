@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const ctrl = require("../../controllers/farmer/farmerCropController");
 const { authenticate, authorizeRoles } = require("../../middleware/auth");
+const { requireActiveSubscription } = require("../../middleware/subscriptionGate");
 
 /**
  * @swagger
@@ -88,7 +89,7 @@ router.get("/categories", authenticate, authorizeRoles("farmer"), ctrl.getCatego
  *       200:
  *         description: List of farmer's crops with product and category info
  */
-router.get("/", authenticate, authorizeRoles("farmer"), ctrl.getMyCrops);
+router.get("/", authenticate, authorizeRoles("farmer"), requireActiveSubscription, ctrl.getMyCrops);
 
 /**
  * @swagger
@@ -160,7 +161,7 @@ router.get("/:crop_id", authenticate, ctrl.getCropById);
  *       404:
  *         description: Farmer or product not found
  */
-router.post("/", authenticate, authorizeRoles("farmer"), ctrl.uploadCropPhotos, ctrl.addCrop);
+router.post("/", authenticate, authorizeRoles("farmer"), requireActiveSubscription, ctrl.uploadCropPhotos, ctrl.addCrop);
 
 /**
  * @swagger
@@ -200,7 +201,7 @@ router.post("/", authenticate, authorizeRoles("farmer"), ctrl.uploadCropPhotos, 
  *       404:
  *         description: Crop not found
  */
-router.put("/:crop_id", authenticate, authorizeRoles("farmer"), ctrl.uploadCropPhotos, ctrl.updateCrop);
+router.put("/:crop_id", authenticate, authorizeRoles("farmer"), requireActiveSubscription, ctrl.uploadCropPhotos, ctrl.updateCrop);
 
 /**
  * @swagger

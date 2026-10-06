@@ -14,11 +14,25 @@ exports.getAllVendors = async (req, res) => {
     // ─── Build where clause ───────────────────────────────────
     const where = {};
 
+    // if (search) {
+    //   where[Op.or] = [
+    //     { shop_name:  { [Op.like]: `%${search}%` } },
+    //     { owner_name: { [Op.like]: `%${search}%` } },
+    //     { gst_number: { [Op.like]: `%${search}%` } },
+    //   ];
+    // }
+
     if (search) {
+      const searchTerm = `%${search}%`;
+
       where[Op.or] = [
-        { shop_name:  { [Op.like]: `%${search}%` } },
-        { owner_name: { [Op.like]: `%${search}%` } },
-        { gst_number: { [Op.like]: `%${search}%` } },
+        { shop_name: { [Op.like]: searchTerm } },
+        { owner_name: { [Op.like]: searchTerm } },
+        { gst_number: { [Op.like]: searchTerm } },
+
+        { "$state_info.state_name$": { [Op.like]: searchTerm } },
+        { "$district_info.district_name$": { [Op.like]: searchTerm } },
+        { "$city_info.city_name$": { [Op.like]: searchTerm } },
       ];
     }
     if (business_type) where.business_type = business_type;

@@ -31,7 +31,7 @@ const fileFilter = (req, file, cb) => {
 const profileUpload = multer({
   storage: profileStorage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 5MB
 });
 
 exports.uploadProfilePhoto = profileUpload.fields([

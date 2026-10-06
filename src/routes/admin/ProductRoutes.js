@@ -22,7 +22,7 @@ const uploadCategory = multer({
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error("Only JPEG, PNG and WEBP images are allowed"));
   },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 5MB
 }).fields([{ name: "image", maxCount: 1 }, { name: "icon", maxCount: 1 }]);
 
 // ─── Multer: products ─────────────────────────────────────────
@@ -42,7 +42,7 @@ const uploadProduct = multer({
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error("Only JPEG, PNG and WEBP images are allowed"));
   },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 5MB
 }).single("image");
 
 const admin = [verifyAdminToken];

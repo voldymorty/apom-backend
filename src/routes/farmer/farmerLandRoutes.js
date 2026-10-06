@@ -34,9 +34,12 @@ const { authenticate, authorizeRoles } = require("../../middleware/auth");
  *                     properties:
  *                       segment_id:      { type: integer }
  *                       farmer_id:       { type: integer }
- *                       crop_name:       { type: string }
+ *                       product_id:      { type: integer, nullable: true }
+ *                       crop_name:       { type: string, description: "Snapshot of the selected product's name" }
  *                       area_value:      { type: number }
  *                       area_unit:       { type: string, enum: [acres, hectares, cent] }
+ *                       expected_yield_value: { type: number, nullable: true }
+ *                       expected_yield_unit:  { type: string, enum: [kg, ton], nullable: true }
  *                       plantation_date: { type: string, format: date }
  *                       harvesting_date: { type: string, format: date }
  *                       status:          { type: string, enum: [active, fallow, harvested] }
@@ -61,11 +64,12 @@ router.get("/", authenticate, authorizeRoles("farmer"), ctrl.getAll);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [crop_name, area_value, plantation_date, harvesting_date]
+ *             required: [product_id, area_value, plantation_date, harvesting_date]
  *             properties:
- *               crop_name:
- *                 type: string
- *                 example: "Paddy"
+ *               product_id:
+ *                 type: integer
+ *                 description: ID from GET /farmer-crops/categories products list
+ *                 example: 12
  *               area_value:
  *                 type: number
  *                 example: 2.5
@@ -73,6 +77,14 @@ router.get("/", authenticate, authorizeRoles("farmer"), ctrl.getAll);
  *                 type: string
  *                 enum: [acres, hectares, cent]
  *                 example: "acres"
+ *               expected_yield_value:
+ *                 type: number
+ *                 example: 8
+ *               expected_yield_unit:
+ *                 type: string
+ *                 enum: [kg, ton]
+ *                 default: kg
+ *                 example: "ton"
  *               plantation_date:
  *                 type: string
  *                 format: date
@@ -90,7 +102,7 @@ router.get("/", authenticate, authorizeRoles("farmer"), ctrl.getAll);
  *       201:
  *         description: Land segment created
  *       400:
- *         description: Invalid status or area exceeds total land
+ *         description: Invalid status/product_id/yield unit, or area exceeds available total land
  *       404:
  *         description: Farmer not found
  */
@@ -117,13 +129,19 @@ router.post("/", authenticate, authorizeRoles("farmer"), ctrl.create);
  *           schema:
  *             type: object
  *             properties:
- *               crop_name:
- *                 type: string
+ *               product_id:
+ *                 type: integer
+ *                 description: ID from GET /farmer-crops/categories products list
  *               area_value:
  *                 type: number
  *               area_unit:
  *                 type: string
  *                 enum: [acres, hectares, cent]
+ *               expected_yield_value:
+ *                 type: number
+ *               expected_yield_unit:
+ *                 type: string
+ *                 enum: [kg, ton]
  *               plantation_date:
  *                 type: string
  *                 format: date
@@ -133,12 +151,12 @@ router.post("/", authenticate, authorizeRoles("farmer"), ctrl.create);
  *               status:
  *                 type: string
  *                 enum: [active, fallow, harvested]
- *                 example: "fallow"
+ *                 example: "harvested"
  *     responses:
  *       200:
  *         description: Land segment updated
  *       400:
- *         description: Invalid status or updated area exceeds total land
+ *         description: Invalid status/product_id/yield unit, or updated area exceeds available total land
  *       404:
  *         description: Segment or farmer not found
  */

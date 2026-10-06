@@ -71,17 +71,33 @@ exports.listFarmers = async (req, res) => {
     // BUT that won't work cleanly.
     //
     // Best Sequelize approach: use literal OR across the join with where clause.
+
+    // search conditions change to add accept state, district and city
+
+    // if (search) {
+    //   farmerWhere[Op.or] = [
+    //     { full_name: { [Op.like]: `%${search}%` } },
+    //     // Pull mobile_number match via a subquery on users table
+    //     {
+    //       user_id: {
+    //         [Op.in]: db.sequelize.literal(
+    //           `(SELECT user_id FROM users WHERE mobile_number LIKE '%${search.replace(/'/g, "''")}%' AND role = 'farmer')`
+    //         ),
+    //       },
+    //     },
+    //   ];
+    // }
+
     if (search) {
+      const searchTerm = `%${search}%`;
+
       farmerWhere[Op.or] = [
-        { full_name: { [Op.like]: `%${search}%` } },
-        // Pull mobile_number match via a subquery on users table
-        {
-          user_id: {
-            [Op.in]: db.sequelize.literal(
-              `(SELECT user_id FROM users WHERE mobile_number LIKE '%${search.replace(/'/g, "''")}%' AND role = 'farmer')`
-            ),
-          },
-        },
+        { full_name: { [Op.like]: searchTerm } },
+        { "$user.mobile_number$": { [Op.like]: searchTerm } },
+        { "$user.email$": { [Op.like]: searchTerm } },
+        { "$state_info.state_name$": { [Op.like]: searchTerm } },
+        { "$district_info.district_name$": { [Op.like]: searchTerm } },
+        { "$city_info.city_name$": { [Op.like]: searchTerm } },
       ];
     }
 
